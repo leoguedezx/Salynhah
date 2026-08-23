@@ -32,6 +32,7 @@ yarn-error.log*
 
 # CineLéo Studio private publisher credential
 /studio/config.private.json
+/studio/diagnostics/
 
 # deployment and generated files
 .vercel
