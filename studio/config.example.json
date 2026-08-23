@@ -1,0 +1,8 @@
+{
+  "ingressId": "IN_EXEMPLO",
+  "ingressUrl": "https://exemplo.livekit.cloud/whip/v1",
+  "ingressToken": "TOKEN_PRIVADO",
+  "roomName": "cineleo-palco",
+  "participantIdentity": "cineleo-studio"
+}
+

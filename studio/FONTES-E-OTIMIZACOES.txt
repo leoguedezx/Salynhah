@@ -1,0 +1,31 @@
+CINELÉO STUDIO — BASE TÉCNICA DA OTIMIZAÇÃO
+
+O CineLéo continua usando LiveKit/WHIP para que convidados assistam no navegador
+sem instalar aplicativo. O Sunshine não foi incorporado como servidor porque seu
+fluxo de vídeo é feito para clientes Moonlight com pareamento, não para acesso
+anônimo por um link web.
+
+Foram adotadas no transmissor as mesmas ideias centrais do pipeline de baixa
+latência do Sunshine:
+
+- H.264 NVENC com tuning ultra-low-latency;
+- preset P1, o mais rápido;
+- CBR com buffer VBV aproximado de um único quadro;
+- multipass em quarter-resolution para conter estouros de bitrate;
+- uma superfície de codificação, sem B-frames e sem lookahead;
+- saída imediata (delay 0 / zero latency) e processo em prioridade alta.
+
+O GOP continua limitado a dois segundos. Diferente do protocolo Sunshine,
+o muxer WHIP atual do FFmpeg retransmite pacotes perdidos (NACK/RTX), mas não
+repassa ao encoder todos os pedidos PLI de novo quadro-chave. Um GOP infinito
+poderia deixar um novo espectador esperando indefinidamente após perda de um IDR.
+
+Fontes primárias consultadas:
+
+https://github.com/LizardByte/Sunshine
+https://github.com/LizardByte/Sunshine/blob/master/src/video.cpp
+https://github.com/LizardByte/Sunshine/blob/master/src/nvenc/nvenc_base.cpp
+https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2configuration.html
+https://ffmpeg.org/doxygen/trunk/whip_8c_source.html
+https://github.com/livekit/protocol/blob/main/protobufs/livekit_egress.proto
+https://www.w3.org/TR/webrtc-stats/
