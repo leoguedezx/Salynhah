@@ -18,20 +18,47 @@ type RoomPacket = { type?: 'chat' | 'hello' | 'history'; message?: unknown; mess
 type VideoRtpStats = RTCStats & {
   bytesReceived?: number;
   codecId?: string;
+  freezeCount?: number;
   frameHeight?: number;
   framesDecoded?: number;
   framesDropped?: number;
   framesPerSecond?: number;
+  framesReceived?: number;
   framesRendered?: number;
   frameWidth?: number;
   jitter?: number;
+  keyFramesDecoded?: number;
   kind?: string;
   mediaType?: string;
+  nackCount?: number;
   packetsLost?: number;
   packetsReceived?: number;
+  pliCount?: number;
+  retransmittedPacketsReceived?: number;
+  totalDecodeTime?: number;
+  totalFreezesDuration?: number;
 };
-type CandidatePairStats = RTCStats & { currentRoundTripTime?: number; localCandidateId?: string; nominated?: boolean; state?: string };
-type CandidateStats = RTCStats & { protocol?: string };
+type CandidatePairStats = RTCStats & { currentRoundTripTime?: number; localCandidateId?: string; nominated?: boolean; remoteCandidateId?: string; state?: string };
+type CandidateStats = RTCStats & { candidateType?: string; networkType?: string; protocol?: string };
+type TransportStats = RTCStats & { selectedCandidatePairId?: string };
+type DiagnosticSample = {
+  at: string;
+  bitrateMbps: number | null;
+  candidateType: string | null;
+  decodedFps: number | null;
+  droppedFps: number | null;
+  framesDecoded: number;
+  framesDropped: number;
+  framesReceived: number;
+  jitterMs: number | null;
+  packetLossPercent: number | null;
+  packetsLost: number;
+  packetsReceived: number;
+  receivedFps: number | null;
+  renderFps: number | null;
+  roundTripMs: number | null;
+  routeProtocol: string | null;
+};
 
 const ROOM_NAME = 'cineleo-palco';
 const CHAT_TOPIC = 'cineleo-chat';
@@ -67,6 +94,19 @@ function normalizeMessage(value: unknown): ChatMessage | null {
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'CL';
+}
+
+function summarizeSeries(values: Array<number | null>) {
+  const sorted = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)).sort((a, b) => a - b);
+  if (!sorted.length) return { average: null, median: null, onePercentLow: null, variance: null };
+  const average = sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+  const variance = sorted.reduce((sum, value) => sum + ((value - average) ** 2), 0) / sorted.length;
+  return {
+    average: Number(average.toFixed(2)),
+    median: Number(sorted[Math.floor((sorted.length - 1) * 0.5)].toFixed(2)),
+    onePercentLow: Number(sorted[Math.floor((sorted.length - 1) * 0.01)].toFixed(2)),
+    variance: Number(variance.toFixed(3)),
+  };
 }
 
 function Avatar({ profile, large = false }: { profile: Profile; large?: boolean }) {
@@ -120,14 +160,31 @@ export default function Home() {
   const [voicePlaybackBlocked, setVoicePlaybackBlocked] = useState(false);
   const [actualFps, setActualFps] = useState<number | null>(null);
   const [networkFps, setNetworkFps] = useState<number | null>(null);
+  const [decodedFps, setDecodedFps] = useState<number | null>(null);
   const [renderFps, setRenderFps] = useState<number | null>(null);
+  const [displayRefreshHz, setDisplayRefreshHz] = useState<number | null>(null);
   const [bitrateMbps, setBitrateMbps] = useState<number | null>(null);
   const [packetLossPercent, setPacketLossPercent] = useState<number | null>(null);
   const [jitterMs, setJitterMs] = useState<number | null>(null);
   const [roundTripMs, setRoundTripMs] = useState<number | null>(null);
   const [routeProtocol, setRouteProtocol] = useState<string | null>(null);
+  const [candidateType, setCandidateType] = useState<string | null>(null);
   const [codec, setCodec] = useState<string | null>(null);
   const [actualResolution, setActualResolution] = useState<string | null>(null);
+  const [framesReceived, setFramesReceived] = useState(0);
+  const [framesDecoded, setFramesDecoded] = useState(0);
+  const [framesDropped, setFramesDropped] = useState(0);
+  const [droppedFps, setDroppedFps] = useState<number | null>(null);
+  const [freezeCount, setFreezeCount] = useState(0);
+  const [freezeDuration, setFreezeDuration] = useState(0);
+  const [keyFramesDecoded, setKeyFramesDecoded] = useState(0);
+  const [packetsReceived, setPacketsReceived] = useState(0);
+  const [packetsLost, setPacketsLost] = useState(0);
+  const [nackCount, setNackCount] = useState(0);
+  const [retransmittedPackets, setRetransmittedPackets] = useState(0);
+  const [pliCount, setPliCount] = useState(0);
+  const [decodeTimeMs, setDecodeTimeMs] = useState<number | null>(null);
+  const [diagnosticExpanded, setDiagnosticExpanded] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState('CONECTANDO');
 
   const roomRef = useRef<Room | null>(null);
@@ -140,6 +197,8 @@ export default function Home() {
   const chatMessagesRef = useRef<ChatMessage[]>([]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const statsTimerRef = useRef<number | null>(null);
+  const diagnosticSamplesRef = useRef<DiagnosticSample[]>([]);
+  const renderFpsRef = useRef<number | null>(null);
   const manualDisconnectRef = useRef(false);
 
   const replaceChat = useCallback((messages: ChatMessage[]) => {
@@ -180,49 +239,138 @@ export default function Home() {
   const startStats = useCallback((track: RemoteTrack) => {
     stopStats();
     let previousBytes = 0;
+    let previousFramesDecoded = 0;
+    let previousFramesDropped = 0;
+    let previousFramesReceived = 0;
     let previousPacketsLost = 0;
     let previousPacketsReceived = 0;
     let previousTime = performance.now();
     statsTimerRef.current = window.setInterval(async () => {
       const report = await track.getRTCStatsReport().catch(() => undefined);
       if (!report) return;
+      const now = performance.now();
+      const elapsedSeconds = Math.max(0.001, (now - previousTime) / 1000);
+      let sampleReceivedFps: number | null = null;
+      let sampleDecodedFps: number | null = null;
+      let sampleDroppedFps: number | null = null;
+      let sampleBitrate: number | null = null;
+      let sampleLoss: number | null = null;
+      let sampleJitter: number | null = null;
+      let sampleRtt: number | null = null;
+      let sampleProtocol: string | null = null;
+      let sampleCandidate: string | null = null;
+      let sampleFramesReceived = 0;
+      let sampleFramesDecoded = 0;
+      let sampleFramesDropped = 0;
+      let samplePacketsReceived = 0;
+      let samplePacketsLost = 0;
+      let selectedCandidatePairId = '';
+      report.forEach((entry) => {
+        const transport = entry as TransportStats;
+        if (transport.type === 'transport' && transport.selectedCandidatePairId) selectedCandidatePairId = transport.selectedCandidatePairId;
+      });
       report.forEach((entry) => {
         const stat = entry as VideoRtpStats;
         if (stat.type !== 'inbound-rtp' || (stat.kind ?? stat.mediaType) !== 'video') return;
-        if (typeof stat.framesPerSecond === 'number') setNetworkFps(Math.round(stat.framesPerSecond));
+        if (typeof stat.framesReceived === 'number') {
+          sampleFramesReceived = stat.framesReceived;
+          setFramesReceived(stat.framesReceived);
+          if (previousFramesReceived > 0) sampleReceivedFps = (stat.framesReceived - previousFramesReceived) / elapsedSeconds;
+        } else if (typeof stat.framesPerSecond === 'number') {
+          sampleReceivedFps = stat.framesPerSecond;
+        }
+        if (typeof stat.framesDecoded === 'number') {
+          sampleFramesDecoded = stat.framesDecoded;
+          setFramesDecoded(stat.framesDecoded);
+          if (previousFramesDecoded > 0) sampleDecodedFps = (stat.framesDecoded - previousFramesDecoded) / elapsedSeconds;
+        }
+        if (typeof stat.framesDropped === 'number') {
+          sampleFramesDropped = stat.framesDropped;
+          setFramesDropped(stat.framesDropped);
+          if (previousFramesDropped > 0) sampleDroppedFps = Math.max(0, (stat.framesDropped - previousFramesDropped) / elapsedSeconds);
+        }
+        if (sampleReceivedFps !== null) setNetworkFps(Number(sampleReceivedFps.toFixed(1)));
+        if (sampleDecodedFps !== null) setDecodedFps(Number(sampleDecodedFps.toFixed(1)));
+        if (sampleDroppedFps !== null) setDroppedFps(Number(sampleDroppedFps.toFixed(1)));
         if (stat.frameWidth && stat.frameHeight) setActualResolution(`${stat.frameWidth}×${stat.frameHeight}`);
-        if (typeof stat.jitter === 'number') setJitterMs(Math.round(stat.jitter * 1000));
+        if (typeof stat.freezeCount === 'number') setFreezeCount(stat.freezeCount);
+        if (typeof stat.totalFreezesDuration === 'number') setFreezeDuration(stat.totalFreezesDuration);
+        if (typeof stat.keyFramesDecoded === 'number') setKeyFramesDecoded(stat.keyFramesDecoded);
+        if (typeof stat.nackCount === 'number') setNackCount(stat.nackCount);
+        if (typeof stat.pliCount === 'number') setPliCount(stat.pliCount);
+        if (typeof stat.retransmittedPacketsReceived === 'number') setRetransmittedPackets(stat.retransmittedPacketsReceived);
+        if (typeof stat.totalDecodeTime === 'number' && stat.framesDecoded) {
+          setDecodeTimeMs(Number(((stat.totalDecodeTime * 1000) / stat.framesDecoded).toFixed(2)));
+        }
+        if (typeof stat.jitter === 'number') {
+          sampleJitter = Math.round(stat.jitter * 1000);
+          setJitterMs(sampleJitter);
+        }
         if (stat.codecId) {
           const codecStat = report.get(stat.codecId) as { mimeType?: string } | undefined;
           if (codecStat?.mimeType) setCodec(codecStat.mimeType.replace('video/', '').toUpperCase());
         }
-        const now = performance.now();
         if (typeof stat.bytesReceived === 'number' && previousBytes > 0) {
-          setBitrateMbps(Number((((stat.bytesReceived - previousBytes) * 8) / ((now - previousTime) / 1000) / 1_000_000).toFixed(1)));
+          sampleBitrate = Number((((stat.bytesReceived - previousBytes) * 8) / elapsedSeconds / 1_000_000).toFixed(2));
+          setBitrateMbps(sampleBitrate);
         }
-        if (typeof stat.bytesReceived === 'number') {
-          previousBytes = stat.bytesReceived;
-          previousTime = now;
-        }
+        if (typeof stat.bytesReceived === 'number') previousBytes = stat.bytesReceived;
         if (typeof stat.packetsLost === 'number' && typeof stat.packetsReceived === 'number') {
           const lost = Math.max(0, stat.packetsLost - previousPacketsLost);
           const received = Math.max(0, stat.packetsReceived - previousPacketsReceived);
           if (previousPacketsReceived > 0 && lost + received > 0) {
-            setPacketLossPercent(Number(((lost / (lost + received)) * 100).toFixed(1)));
+            sampleLoss = Number(((lost / (lost + received)) * 100).toFixed(2));
+            setPacketLossPercent(sampleLoss);
           }
+          samplePacketsLost = stat.packetsLost;
+          samplePacketsReceived = stat.packetsReceived;
+          setPacketsLost(stat.packetsLost);
+          setPacketsReceived(stat.packetsReceived);
           previousPacketsLost = stat.packetsLost;
           previousPacketsReceived = stat.packetsReceived;
         }
+        if (typeof stat.framesReceived === 'number') previousFramesReceived = stat.framesReceived;
+        if (typeof stat.framesDecoded === 'number') previousFramesDecoded = stat.framesDecoded;
+        if (typeof stat.framesDropped === 'number') previousFramesDropped = stat.framesDropped;
       });
       report.forEach((entry) => {
         const pair = entry as CandidatePairStats;
-        if (pair.type !== 'candidate-pair' || pair.state !== 'succeeded' || !pair.nominated) return;
-        if (typeof pair.currentRoundTripTime === 'number') setRoundTripMs(Math.round(pair.currentRoundTripTime * 1000));
+        if (pair.type !== 'candidate-pair' || pair.state !== 'succeeded' || (!pair.nominated && pair.id !== selectedCandidatePairId)) return;
+        if (typeof pair.currentRoundTripTime === 'number') {
+          sampleRtt = Math.round(pair.currentRoundTripTime * 1000);
+          setRoundTripMs(sampleRtt);
+        }
         if (pair.localCandidateId) {
           const candidate = report.get(pair.localCandidateId) as CandidateStats | undefined;
-          if (candidate?.protocol) setRouteProtocol(candidate.protocol.toUpperCase());
+          if (candidate?.protocol) {
+            sampleProtocol = candidate.protocol.toUpperCase();
+            setRouteProtocol(sampleProtocol);
+          }
+          if (candidate?.candidateType) {
+            sampleCandidate = candidate.candidateType.toUpperCase();
+            setCandidateType(sampleCandidate);
+          }
         }
       });
+      previousTime = now;
+      diagnosticSamplesRef.current = [...diagnosticSamplesRef.current, {
+        at: new Date().toISOString(),
+        bitrateMbps: sampleBitrate,
+        candidateType: sampleCandidate,
+        decodedFps: sampleDecodedFps === null ? null : Number(sampleDecodedFps.toFixed(2)),
+        droppedFps: sampleDroppedFps === null ? null : Number(sampleDroppedFps.toFixed(2)),
+        framesDecoded: sampleFramesDecoded,
+        framesDropped: sampleFramesDropped,
+        framesReceived: sampleFramesReceived,
+        jitterMs: sampleJitter,
+        packetLossPercent: sampleLoss,
+        packetsLost: samplePacketsLost,
+        packetsReceived: samplePacketsReceived,
+        receivedFps: sampleReceivedFps === null ? null : Number(sampleReceivedFps.toFixed(2)),
+        renderFps: renderFpsRef.current,
+        roundTripMs: sampleRtt,
+        routeProtocol: sampleProtocol,
+      }].slice(-900);
     }, 1000);
   }, [stopStats]);
 
@@ -389,6 +537,7 @@ export default function Home() {
   useEffect(() => {
     const video = videoRef.current;
     if (phase !== 'watching' || !video || typeof video.requestVideoFrameCallback !== 'function') {
+      renderFpsRef.current = null;
       setRenderFps(null);
       return;
     }
@@ -401,7 +550,9 @@ export default function Home() {
       frames += 1;
       const elapsed = now - startedAt;
       if (elapsed >= 1000) {
-        setRenderFps(Math.round((frames * 1000) / elapsed));
+        const measured = Number(((frames * 1000) / elapsed).toFixed(1));
+        renderFpsRef.current = measured;
+        setRenderFps(measured);
         frames = 0;
         startedAt = now;
       }
@@ -413,6 +564,24 @@ export default function Home() {
       if (typeof video.cancelVideoFrameCallback === 'function') video.cancelVideoFrameCallback(requestId);
     };
   }, [phase]);
+  useEffect(() => {
+    let cancelled = false;
+    let requestId = 0;
+    let frames = 0;
+    const startedAt = performance.now();
+    const measureRefresh = (now: number) => {
+      if (cancelled) return;
+      frames += 1;
+      const elapsed = now - startedAt;
+      if (elapsed >= 1800) {
+        setDisplayRefreshHz(Math.round((frames * 1000) / elapsed));
+        return;
+      }
+      requestId = window.requestAnimationFrame(measureRefresh);
+    };
+    requestId = window.requestAnimationFrame(measureRefresh);
+    return () => { cancelled = true; window.cancelAnimationFrame(requestId); };
+  }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [chatMessages]);
 
   const startHosting = () => {
@@ -445,14 +614,31 @@ export default function Home() {
     setMicEnabled(false);
     setActualFps(null);
     setNetworkFps(null);
+    setDecodedFps(null);
     setRenderFps(null);
+    renderFpsRef.current = null;
     setBitrateMbps(null);
     setPacketLossPercent(null);
     setJitterMs(null);
     setRoundTripMs(null);
     setRouteProtocol(null);
+    setCandidateType(null);
     setActualResolution(null);
     setCodec(null);
+    setFramesReceived(0);
+    setFramesDecoded(0);
+    setFramesDropped(0);
+    setDroppedFps(null);
+    setFreezeCount(0);
+    setFreezeDuration(0);
+    setKeyFramesDecoded(0);
+    setPacketsReceived(0);
+    setPacketsLost(0);
+    setNackCount(0);
+    setRetransmittedPackets(0);
+    setPliCount(0);
+    setDecodeTimeMs(null);
+    diagnosticSamplesRef.current = [];
   };
 
   const joinRoom = (event: FormEvent) => {
@@ -551,6 +737,56 @@ export default function Home() {
     }
   };
 
+  const downloadDiagnostic = () => {
+    const samples = diagnosticSamplesRef.current;
+    const report = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      viewer: {
+        userAgent: navigator.userAgent,
+        displayRefreshHz,
+      },
+      stream: {
+        resolution: actualResolution,
+        codec,
+        receivedFps: networkFps,
+        decodedFps,
+        renderedFps: renderFps,
+        framesReceived,
+        framesDecoded,
+        framesDropped,
+        droppedFps,
+        freezeCount,
+        totalFreezesDuration: freezeDuration,
+        keyFramesDecoded,
+        bitrateMbps,
+        packetsReceived,
+        packetsLost,
+        packetLossPercent,
+        nackCount,
+        retransmittedPacketsReceived: retransmittedPackets,
+        pliCount,
+        jitterMs,
+        roundTripMs,
+        transport: routeProtocol,
+        candidateType,
+        averageDecodeTimeMs: decodeTimeMs,
+      },
+      stability: {
+        receivedFps: summarizeSeries(samples.map((sample) => sample.receivedFps)),
+        decodedFps: summarizeSeries(samples.map((sample) => sample.decodedFps)),
+        renderedFps: summarizeSeries(samples.map((sample) => sample.renderFps)),
+      },
+      samples,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `salynhah-viewer-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const fullscreen = () => videoRef.current?.requestFullscreen().catch(() => undefined);
   const pictureInPicture = () => { if (videoRef.current && document.pictureInPictureEnabled) videoRef.current.requestPictureInPicture().catch(() => undefined); };
 
@@ -563,8 +799,10 @@ export default function Home() {
       ? `A rota está perdendo ${packetLossPercent}% dos pacotes. Use o perfil 1080p60 Estável ou teste uma conexão por cabo.`
       : jitterMs !== null && jitterMs >= 30
         ? `A variação da rede está alta (${jitterMs} ms de jitter). Isso causa FPS irregular mesmo com muitos megabits disponíveis.`
-        : renderFps !== null && networkFps !== null && networkFps - renderFps >= 8
-          ? 'O vídeo chega mais rápido do que este aparelho consegue exibir. O gargalo está na decodificação/renderização do navegador.'
+        : decodedFps !== null && networkFps !== null && networkFps - decodedFps >= 8
+          ? 'Os quadros chegam, mas o decoder deste aparelho não acompanha a transmissão.'
+          : renderFps !== null && decodedFps !== null && decodedFps - renderFps >= 8
+            ? 'O decoder acompanha, mas o compositor ou o refresh deste monitor limita a exibição.'
           : '';
     return (
       <main className="screening-room">
@@ -603,12 +841,31 @@ export default function Home() {
                 <button className={micEnabled ? 'mic-active' : ''} onClick={toggleMicrophone} aria-label={micEnabled ? 'Desligar microfone' : 'Ligar microfone'}>{micEnabled ? '●' : '♬'} <span>{micEnabled ? 'MICROFONE LIGADO' : 'FALAR NA SALA'}</span></button>
                 {!isHost && roomActive && <button onClick={pictureInPicture} aria-label="Picture in picture">▣ <span>MINIPLAYER</span></button>}
                 {roomActive && <button onClick={fullscreen} aria-label="Tela cheia">⛶ <span>TELA CHEIA</span></button>}
+                {connected && <button className={diagnosticExpanded ? 'diagnostic-active' : ''} onClick={() => setDiagnosticExpanded((value) => !value)} aria-expanded={diagnosticExpanded}>⌁ <span>DIAGNÓSTICO</span></button>}
               </div>}
               {micError && <p className="voice-notice error">{micError}</p>}
               {voicePlaybackBlocked && <button className="voice-notice" onClick={resumeVoicePlayback}>▶ CLIQUE PARA OUVIR AS VOZES DA SALA</button>}
               {connected && <div className="stream-metrics" aria-label="Diagnóstico da transmissão">
-                <span><small>PERFIL DO STUDIO</small><strong>ATÉ 120 FPS</strong></span><span><small>RECEBIDO</small><strong>{networkFps ?? actualFps ?? '—'} FPS</strong></span><span><small>EXIBIDO</small><strong>{renderFps ?? '—'} FPS</strong></span><span><small>RESOLUÇÃO</small><strong>{actualResolution ?? 'AGUARDANDO'}</strong></span><span><small>REDE</small><strong>{bitrateMbps !== null ? `${bitrateMbps} Mb/s` : '—'} · {packetLossPercent !== null ? `${packetLossPercent}% perda` : 'medindo'}</strong></span><span><small>ROTA / LATÊNCIA</small><strong>{connectionQuality} · {routeProtocol ?? codec ?? 'H264'}{roundTripMs !== null ? ` · ${roundTripMs} ms` : jitterMs !== null ? ` · jitter ${jitterMs} ms` : ''}</strong></span>
+                <span><small>RECEBIDO</small><strong>{networkFps ?? actualFps ?? '—'} FPS</strong></span><span><small>DECODIFICADO</small><strong>{decodedFps ?? '—'} FPS</strong></span><span><small>EXIBIDO</small><strong>{renderFps ?? '—'} FPS</strong></span><span><small>RESOLUÇÃO / CODEC</small><strong>{actualResolution ?? 'AGUARDANDO'} · {codec ?? '—'}</strong></span><span><small>REDE</small><strong>{bitrateMbps !== null ? `${bitrateMbps} Mb/s` : '—'} · {packetLossPercent !== null ? `${packetLossPercent}% perda` : 'medindo'}</strong></span><span><small>ROTA / LATÊNCIA</small><strong>{routeProtocol ?? '—'} · {candidateType ?? '—'}{roundTripMs !== null ? ` · ${roundTripMs} ms` : jitterMs !== null ? ` · jitter ${jitterMs} ms` : ''}</strong></span>
               </div>}
+              {connected && diagnosticExpanded && <section className="diagnostic-panel" aria-label="Modo diagnóstico detalhado">
+                <header><div><span>MODO DIAGNÓSTICO</span><strong>Frames reais em cada etapa do viewer</strong></div><button type="button" onClick={downloadDiagnostic}>↓ BAIXAR JSON</button></header>
+                <div className="diagnostic-grid">
+                  <span><small>FRAMES RECEBIDOS</small><strong>{framesReceived.toLocaleString('pt-BR')}</strong></span>
+                  <span><small>FRAMES DECODIFICADOS</small><strong>{framesDecoded.toLocaleString('pt-BR')}</strong></span>
+                  <span><small>FRAMES DESCARTADOS</small><strong>{framesDropped.toLocaleString('pt-BR')} · {droppedFps ?? '—'}/s</strong></span>
+                  <span><small>KEYFRAMES</small><strong>{keyFramesDecoded.toLocaleString('pt-BR')}</strong></span>
+                  <span><small>FREEZES</small><strong>{freezeCount} · {freezeDuration.toFixed(2)} s</strong></span>
+                  <span><small>DECODE MÉDIO</small><strong>{decodeTimeMs !== null ? `${decodeTimeMs} ms/frame` : '—'}</strong></span>
+                  <span><small>PACOTES</small><strong>{packetsReceived.toLocaleString('pt-BR')} recebidos</strong></span>
+                  <span><small>PERDIDOS</small><strong>{packetsLost.toLocaleString('pt-BR')} · {packetLossPercent ?? '—'}%</strong></span>
+                  <span><small>NACK / RTX</small><strong>{nackCount} / {retransmittedPackets}</strong></span>
+                  <span><small>PLI</small><strong>{pliCount}</strong></span>
+                  <span><small>JITTER / RTT</small><strong>{jitterMs ?? '—'} ms / {roundTripMs ?? '—'} ms</strong></span>
+                  <span><small>DISPLAY ESTIMADO</small><strong>{displayRefreshHz ?? '—'} Hz</strong></span>
+                </div>
+                <p>O refresh é estimado com animação do navegador. Receber ou decodificar 120 FPS não garante exibição visual de 120 FPS em uma tela de 60 Hz.</p>
+              </section>}
               {connected && diagnosticWarning && <p className="stream-health-warning">△ {diagnosticWarning}</p>}
             </div>
             {phase !== 'joining' && <aside className="chat-panel">
