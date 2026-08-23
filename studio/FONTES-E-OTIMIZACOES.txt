@@ -5,15 +5,24 @@ sem instalar aplicativo. O Sunshine não foi incorporado como servidor porque se
 fluxo de vídeo é feito para clientes Moonlight com pareamento, não para acesso
 anônimo por um link web.
 
-Foram adotadas no transmissor as mesmas ideias centrais do pipeline de baixa
-latência do Sunshine:
+Foram adotadas no transmissor ideias centrais do pipeline de baixa latência,
+sem copiar a implementação GPLv3 do Sunshine:
 
 - H.264 NVENC com tuning ultra-low-latency;
 - preset P1, o mais rápido;
 - CBR com buffer VBV aproximado de um único quadro;
-- multipass em quarter-resolution para conter estouros de bitrate;
-- uma superfície de codificação, sem B-frames e sem lookahead;
+- single-pass após benchmark A/B com quarter-resolution;
+- duas superfícies concorrentes, sem B-frames e sem lookahead;
 - saída imediata (delay 0 / zero latency) e processo em prioridade alta.
+
+No benchmark sintético local, `surfaces=2` + single-pass aumentou o throughput
+aproximado de 381 para 487 FPS em 1080p, de 232 para 290 FPS em 1440p e de 437
+para 513 FPS em 1080p120, comparado ao antigo `surfaces=1` + `qres`. Esses
+números medem folga do encoder, não FPS efetivamente apresentado ao viewer.
+
+O VBV agora é calculado dinamicamente como bitrate/fps. `ldkfs` foi corrigido
+de 200 para 1 porque o FFmpeg 8.1 copia o valor diretamente para
+`lowDelayKeyFrameScale`; 200 não equivalia à configuração nativa do Sunshine.
 
 O GOP continua limitado a dois segundos. Diferente do protocolo Sunshine,
 o muxer WHIP atual do FFmpeg retransmite pacotes perdidos (NACK/RTX), mas não

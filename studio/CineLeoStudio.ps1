@@ -33,7 +33,7 @@ $ffmpegPath = $ffmpegCandidates | Where-Object { $_ -and (Test-Path -LiteralPath
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CineLéo Studio" Width="760" Height="690" MinWidth="700" MinHeight="640"
+        Title="CineLéo Studio" Width="820" Height="830" MinWidth="760" MinHeight="720"
         WindowStartupLocation="CenterScreen" Background="#0D0E0C" Foreground="#EFE9DC">
   <Window.Resources>
     <SolidColorBrush x:Key="Gold" Color="#D6A451"/>
@@ -77,6 +77,9 @@ $ffmpegPath = $ffmpegCandidates | Where-Object { $_ -and (Test-Path -LiteralPath
         <TextBlock Text="2. ESCOLHA O PERFIL" Foreground="{StaticResource Gold}" FontWeight="Bold" FontSize="10"/>
         <ComboBox x:Name="ProfileCombo" Margin="0,9,0,16" Height="44" DisplayMemberPath="Label"/>
 
+        <TextBlock Text="BITRATE DO PERFIL" Foreground="#8D8E86" FontWeight="Bold" FontSize="9"/>
+        <ComboBox x:Name="BitrateCombo" Margin="0,8,0,16" Height="42"/>
+
         <Grid Margin="0,0,0,20"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <Border Grid.Column="0" Background="#171814" BorderBrush="#3B3C36" BorderThickness="1" Padding="18">
             <StackPanel><TextBlock x:Name="ResolutionMetric" Text="1920 × 1080" FontFamily="Georgia" FontSize="25"/><TextBlock Text="RESOLUÇÃO DE SAÍDA" Foreground="#777970" FontSize="9" Margin="0,5,0,0"/></StackPanel>
@@ -92,6 +95,7 @@ $ffmpegPath = $ffmpegCandidates | Where-Object { $_ -and (Test-Path -LiteralPath
             <CheckBox x:Name="CursorCheck" IsChecked="True" Content="Mostrar o cursor do mouse" Foreground="#D7D2C7" Margin="0,0,0,11"/>
             <CheckBox x:Name="MicCheck" Content="Incluir meu microfone no Studio (opcional)" Foreground="#D7D2C7"/>
             <TextBox x:Name="MicDevice" Margin="0,10,0,0" Text="Microfone (3- HyperX Cloud Flight for PS)" IsEnabled="False" ToolTip="Nome exato do dispositivo de áudio do Windows"/>
+            <CheckBox x:Name="DiagnosticCheck" Margin="0,12,0,0" Content="Modo diagnóstico: registrar métricas em JSONL e CSV" Foreground="#D7D2C7"/>
             <TextBlock Text="Dica: para conversar, você também pode usar o botão FALAR NA SALA do site. Isso evita eco." Foreground="#777970" TextWrapping="Wrap" FontSize="10" Margin="0,10,0,0"/>
           </StackPanel>
         </Border>
@@ -109,6 +113,18 @@ $ffmpegPath = $ffmpegCandidates | Where-Object { $_ -and (Test-Path -LiteralPath
             <StackPanel Grid.Column="2" HorizontalAlignment="Right"><TextBlock x:Name="FpsMetric" Text="— FPS" Foreground="{StaticResource Gold}" FontFamily="Georgia" FontSize="21" HorizontalAlignment="Right"/><TextBlock x:Name="BitrateMetric" Text="10 Mbps alvo" Foreground="#74766E" FontSize="9" HorizontalAlignment="Right"/></StackPanel>
           </Grid>
         </Border>
+        <Grid Margin="0,10,0,0">
+          <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+          <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+          <Border Grid.Row="0" Grid.Column="0" BorderBrush="#34352F" BorderThickness="1" Padding="10"><StackPanel><TextBlock x:Name="CaptureFpsMetric" Text="—" Foreground="#D6A451" FontFamily="Georgia" FontSize="17"/><TextBlock Text="CAPTURA ÚNICA (EST.)" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="0" Grid.Column="1" BorderBrush="#34352F" BorderThickness="0,1,1,1" Padding="10"><StackPanel><TextBlock x:Name="EncodeFpsMetric" Text="—" Foreground="#D6A451" FontFamily="Georgia" FontSize="17"/><TextBlock Text="ENCODE / ENVIO" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="0" Grid.Column="2" BorderBrush="#34352F" BorderThickness="0,1,1,1" Padding="10"><StackPanel><TextBlock x:Name="DuplicateMetric" Text="0" Foreground="#D6A451" FontFamily="Georgia" FontSize="17"/><TextBlock Text="DUPLICADOS" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="0" Grid.Column="3" BorderBrush="#34352F" BorderThickness="0,1,1,1" Padding="10"><StackPanel><TextBlock x:Name="DropMetric" Text="0" Foreground="#D6A451" FontFamily="Georgia" FontSize="17"/><TextBlock Text="DESCARTADOS" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="1" Grid.Column="0" BorderBrush="#34352F" BorderThickness="1,0,1,1" Padding="10"><StackPanel><TextBlock x:Name="GpuMetric" Text="—" Foreground="#D6A451" FontFamily="Georgia" FontSize="15"/><TextBlock Text="GPU / NVENC" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="1" Grid.Column="1" BorderBrush="#34352F" BorderThickness="0,0,1,1" Padding="10"><StackPanel><TextBlock x:Name="SpeedMetric" Text="—" Foreground="#D6A451" FontFamily="Georgia" FontSize="15"/><TextBlock Text="VELOCIDADE" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="1" Grid.Column="2" BorderBrush="#34352F" BorderThickness="0,0,1,1" Padding="10"><StackPanel><TextBlock x:Name="RecoveryMetric" Text="0 / 0" Foreground="#D6A451" FontFamily="Georgia" FontSize="15"/><TextBlock Text="NACK / RTX" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+          <Border Grid.Row="1" Grid.Column="3" BorderBrush="#34352F" BorderThickness="0,0,1,1" Padding="10"><StackPanel><TextBlock Text="N/D" Foreground="#85877E" FontFamily="Georgia" FontSize="15"/><TextBlock Text="FILA / LATÊNCIA NVENC" Foreground="#6F7169" FontSize="7"/></StackPanel></Border>
+        </Grid>
       </StackPanel>
     </ScrollViewer>
 
@@ -123,9 +139,11 @@ $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $monitorCombo = $window.FindName('MonitorCombo')
 $profileCombo = $window.FindName('ProfileCombo')
+$bitrateCombo = $window.FindName('BitrateCombo')
 $cursorCheck = $window.FindName('CursorCheck')
 $micCheck = $window.FindName('MicCheck')
 $micDevice = $window.FindName('MicDevice')
+$diagnosticCheck = $window.FindName('DiagnosticCheck')
 $startButton = $window.FindName('StartButton')
 $openSiteButton = $window.FindName('OpenSiteButton')
 $statusDot = $window.FindName('StatusDot')
@@ -137,6 +155,13 @@ $badgeText = $window.FindName('BadgeText')
 $resolutionMetric = $window.FindName('ResolutionMetric')
 $outputFpsMetric = $window.FindName('OutputFpsMetric')
 $profileNote = $window.FindName('ProfileNote')
+$captureFpsMetric = $window.FindName('CaptureFpsMetric')
+$encodeFpsMetric = $window.FindName('EncodeFpsMetric')
+$duplicateMetric = $window.FindName('DuplicateMetric')
+$dropMetric = $window.FindName('DropMetric')
+$gpuMetric = $window.FindName('GpuMetric')
+$speedMetric = $window.FindName('SpeedMetric')
+$recoveryMetric = $window.FindName('RecoveryMetric')
 
 $screens = [System.Windows.Forms.Screen]::AllScreens
 for ($index = 0; $index -lt $screens.Count; $index++) {
@@ -147,15 +172,25 @@ for ($index = 0; $index -lt $screens.Count; $index++) {
 if ($monitorCombo.Items.Count -gt 0) { $monitorCombo.SelectedIndex = 0 }
 
 $profiles = @(
-  [pscustomobject]@{ Label = '1080p60 Estável · recomendado'; Short = '1080P60'; Badge = '1080P60 · ESTÁVEL · RTX'; Width = 1920; Height = 1080; Fps = 60; Bitrate = '10M'; BitrateLabel = '10 Mbps alvo'; Buffer = '167k'; Note = 'MENOS PERDA · MAIS ESTÁVEL' },
-  [pscustomobject]@{ Label = '1080p120 Ultra · máxima fluidez'; Short = '1080P120'; Badge = '1080P120 · ULTRA · RTX'; Width = 1920; Height = 1080; Fps = 120; Bitrate = '16M'; BitrateLabel = '16 Mbps alvo'; Buffer = '134k'; Note = 'EXIGE NAVEGADOR E TELA RÁPIDOS' },
-  [pscustomobject]@{ Label = '2K60 Cinema · máxima definição'; Short = '2K60'; Badge = '2K60 · CINEMA · RTX'; Width = 2560; Height = 1440; Fps = 60; Bitrate = '16M'; BitrateLabel = '16 Mbps alvo'; Buffer = '267k'; Note = 'MAIS DEFINIÇÃO · 60 FPS' }
+  [pscustomobject]@{ Label = '1080p60 Estável · recomendado'; Short = '1080P60'; Badge = '1080P60 · ESTÁVEL · NVIDIA'; Width = 1920; Height = 1080; Fps = 60; DefaultBitrate = 10; Bitrates = @(8, 10, 12, 15, 20); Note = 'MENOS PERDA · MAIS ESTÁVEL' },
+  [pscustomobject]@{ Label = '2K60 Alta qualidade'; Short = '2K60'; Badge = '2K60 · ALTA QUALIDADE · NVIDIA'; Width = 2560; Height = 1440; Fps = 60; DefaultBitrate = 16; Bitrates = @(12, 16, 20, 25, 30); Note = 'MAIS DEFINIÇÃO · 60 FPS' },
+  [pscustomobject]@{ Label = '1080p120 Ultra · experimental'; Short = '1080P120'; Badge = '1080P120 · EXPERIMENTAL · NVIDIA'; Width = 1920; Height = 1080; Fps = 120; DefaultBitrate = 16; Bitrates = @(12, 16, 20, 25, 30); Note = 'SÓ USE APÓS VALIDAR 60 FPS' }
 )
 foreach ($profile in $profiles) { [void]$profileCombo.Items.Add($profile) }
 $profileCombo.SelectedIndex = 0
 
 $script:ffmpegProcess = $null
 $script:lastProgress = ''
+$script:lastFrame = $null
+$script:lastDup = 0L
+$script:lastDrop = 0L
+$script:lastSampleAt = $null
+$script:nackCount = 0L
+$script:rtxCount = 0L
+$script:lastGpuPoll = [DateTime]::MinValue
+$script:lastGpu = $null
+$script:diagnosticJsonl = ''
+$script:diagnosticCsv = ''
 
 function Quote-Argument([string]$value) {
   return '"' + $value.Replace('"', '\"') + '"'
@@ -172,13 +207,79 @@ function Get-SelectedProfile {
   return $profiles[0]
 }
 
+function Get-SelectedBitrateMbps {
+  $profile = Get-SelectedProfile
+  if ($bitrateCombo.SelectedItem -ne $null) { return [int]$bitrateCombo.SelectedItem }
+  return [int]$profile.DefaultBitrate
+}
+
+function Get-VbvBufferBits([int]$bitrateMbps, [int]$fps) {
+  return [int][math]::Ceiling(($bitrateMbps * 1000000.0) / $fps)
+}
+
+function Update-BitrateOptions {
+  $profile = Get-SelectedProfile
+  $bitrateCombo.Items.Clear()
+  foreach ($value in $profile.Bitrates) { [void]$bitrateCombo.Items.Add([int]$value) }
+  $bitrateCombo.SelectedItem = [int]$profile.DefaultBitrate
+}
+
+function Reset-HostMetrics {
+  $script:lastFrame = $null
+  $script:lastDup = 0L
+  $script:lastDrop = 0L
+  $script:lastSampleAt = $null
+  $script:nackCount = 0L
+  $script:rtxCount = 0L
+  $script:lastGpu = $null
+  $script:lastGpuPoll = [DateTime]::MinValue
+  $captureFpsMetric.Text = '—'
+  $encodeFpsMetric.Text = '—'
+  $duplicateMetric.Text = '0'
+  $dropMetric.Text = '0'
+  $gpuMetric.Text = '—'
+  $speedMetric.Text = '—'
+  $recoveryMetric.Text = 'N/D'
+}
+
+function Initialize-DiagnosticSession {
+  $script:diagnosticJsonl = ''
+  $script:diagnosticCsv = ''
+  if (-not $diagnosticCheck.IsChecked) { return }
+  $directory = Join-Path $appRoot 'diagnostics'
+  [void](New-Item -ItemType Directory -Force -Path $directory)
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $script:diagnosticJsonl = Join-Path $directory "host-$stamp.jsonl"
+  $script:diagnosticCsv = Join-Path $directory "host-$stamp.csv"
+  [System.IO.File]::WriteAllText($script:diagnosticCsv, "timestamp,capture_fps_estimate,encode_fps,send_fps,frames,duplicated,dropped,bitrate,speed,gpu_percent,nvenc_percent,nack,rtx,out_time`r`n", [System.Text.UTF8Encoding]::new($false))
+}
+
+function Write-DiagnosticSample([System.Collections.IDictionary]$sample) {
+  if (-not $script:diagnosticJsonl) { return }
+  $jsonLine = ($sample | ConvertTo-Json -Compress) + "`n"
+  [System.IO.File]::AppendAllText($script:diagnosticJsonl, $jsonLine, [System.Text.UTF8Encoding]::new($false))
+  $fields = @('timestamp','capture_fps_estimate','encode_fps','send_fps','frames','duplicated','dropped','bitrate','speed','gpu_percent','nvenc_percent','nack','rtx','out_time') | ForEach-Object { [string]$sample[$_] }
+  [System.IO.File]::AppendAllText($script:diagnosticCsv, ([string]::Join(',', $fields) + "`r`n"), [System.Text.UTF8Encoding]::new($false))
+}
+
+function Get-GpuTelemetry {
+  $command = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+  if (-not $command) { return $null }
+  $line = & $command.Source '--query-gpu=utilization.gpu,utilization.encoder' '--format=csv,noheader,nounits' 2>$null | Select-Object -First 1
+  if (-not $line) { return $null }
+  $parts = $line -split ',\s*'
+  if ($parts.Count -lt 2) { return $null }
+  return [pscustomobject]@{ Gpu = [double]$parts[0]; Encoder = [double]$parts[1] }
+}
+
 function Update-ProfileUi {
   $profile = Get-SelectedProfile
+  $bitrateMbps = Get-SelectedBitrateMbps
   $badgeText.Text = $profile.Badge
   $resolutionMetric.Text = "$($profile.Width) × $($profile.Height)"
   $outputFpsMetric.Text = "$($profile.Fps) FPS"
   $profileNote.Text = $profile.Note
-  $bitrateMetric.Text = $profile.BitrateLabel
+  $bitrateMetric.Text = "$bitrateMbps Mbps alvo · VBV $((Get-VbvBufferBits $bitrateMbps $profile.Fps)) bits"
   if (-not ($script:ffmpegProcess -and -not $script:ffmpegProcess.HasExited)) {
     $startButton.Content = "▶  INICIAR TRANSMISSÃO $($profile.Short)"
   }
@@ -193,11 +294,13 @@ function Stop-Studio {
   $startButton.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString('#D9452F'))
   Set-StudioStatus 'TRANSMISSÃO ENCERRADA' 'Pronto para iniciar novamente.' '#777970'
   $fpsMetric.Text = '— FPS'
+  Reset-HostMetrics
 }
 
 $micCheck.Add_Checked({ $micDevice.IsEnabled = $true })
 $micCheck.Add_Unchecked({ $micDevice.IsEnabled = $false })
-$profileCombo.Add_SelectionChanged({ Update-ProfileUi })
+$profileCombo.Add_SelectionChanged({ Update-BitrateOptions; Update-ProfileUi })
+$bitrateCombo.Add_SelectionChanged({ Update-ProfileUi })
 $openSiteButton.Add_Click({ Start-Process $siteUrl })
 
 $startButton.Add_Click({
@@ -216,6 +319,9 @@ $startButton.Add_Click({
 
   $monitorIndex = [int]$monitorCombo.SelectedItem.Index
   $profile = Get-SelectedProfile
+  $bitrateMbps = Get-SelectedBitrateMbps
+  $bitrate = "$bitrateMbps`M"
+  $bufferBits = Get-VbvBufferBits $bitrateMbps $profile.Fps
   $drawMouse = if ($cursorCheck.IsChecked) { 1 } else { 0 }
   $capture = "gfxcapture=monitor_idx=$monitorIndex`:max_framerate=$($profile.Fps)`:width=$($profile.Width)`:height=$($profile.Height)`:resize_mode=scale_aspect`:scale_mode=bicubic`:capture_cursor=$drawMouse"
   $arguments = @(
@@ -232,9 +338,9 @@ $startButton.Add_Click({
 
   $arguments += @(
     '-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'ull', '-profile:v', 'high', '-level', '5.2',
-    '-rc', 'cbr', '-b:v', $profile.Bitrate, '-minrate', $profile.Bitrate, '-maxrate', $profile.Bitrate, '-bufsize', $profile.Buffer,
-    '-g', ([int]$profile.Fps * 2), '-keyint_min', ([int]$profile.Fps * 2), '-bf', '0', '-rc-lookahead', '0', '-multipass', 'qres', '-surfaces', '1',
-    '-spatial_aq', '0', '-strict_gop', '1', '-nonref_p', '1', '-ldkfs', '200', '-cbr_padding', '0',
+    '-rc', 'cbr', '-b:v', $bitrate, '-minrate', $bitrate, '-maxrate', $bitrate, '-bufsize', $bufferBits,
+    '-g', ([int]$profile.Fps * 2), '-keyint_min', ([int]$profile.Fps * 2), '-bf', '0', '-rc-lookahead', '0', '-multipass', 'disabled', '-surfaces', '2',
+    '-spatial_aq', '0', '-strict_gop', '1', '-nonref_p', '1', '-ldkfs', '1', '-cbr_padding', '0',
     '-zerolatency', '1', '-forced-idr', '1', '-delay', '0', '-r', $profile.Fps, '-fps_mode', 'cfr',
     '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'
   )
@@ -244,6 +350,8 @@ $startButton.Add_Click({
   $arguments += @('-f', 'whip', '-handshake_timeout', '15000', '-pkt_size', '1200', '-ts_buffer_size', '16777216', '-rtp_history', '2048', '-authorization', [string]$config.ingressToken, [string]$config.ingressUrl)
 
   if (Test-Path -LiteralPath $progressPath) { Remove-Item -LiteralPath $progressPath -Force -ErrorAction SilentlyContinue }
+  Reset-HostMetrics
+  Initialize-DiagnosticSession
   $processInfo = New-Object System.Diagnostics.ProcessStartInfo
   $processInfo.FileName = $ffmpegPath
   $processInfo.Arguments = ($arguments | ForEach-Object { Quote-Argument ([string]$_) }) -join ' '
@@ -292,14 +400,61 @@ $timer.Add_Tick({
     foreach ($line in ($latest -split "`r?`n")) {
       if ($line -match '^([^=]+)=(.*)$') { $values[$matches[1]] = $matches[2] }
     }
-    if ($values.fps) { $fpsMetric.Text = "$([math]::Round([double]$values.fps)) FPS" }
+    $now = [DateTime]::UtcNow
+    $frame = if ($values.frame) { [long]$values.frame } else { 0L }
+    $dup = if ($values.dup_frames) { [long]$values.dup_frames } else { 0L }
+    $drop = if ($values.drop_frames) { [long]$values.drop_frames } else { 0L }
+    if (($now - $script:lastGpuPoll).TotalSeconds -ge 2) {
+      $script:lastGpuPoll = $now
+      try { $script:lastGpu = Get-GpuTelemetry } catch { $script:lastGpu = $null }
+      if ($script:lastGpu) { $gpuMetric.Text = "$([math]::Round($script:lastGpu.Gpu))% / $([math]::Round($script:lastGpu.Encoder))%" }
+    }
+    if ($script:lastFrame -ne $null -and $script:lastSampleAt) {
+      $elapsed = ($now - $script:lastSampleAt).TotalSeconds
+      if ($elapsed -ge 0.2 -and $frame -ge $script:lastFrame) {
+        $deltaFrame = $frame - [long]$script:lastFrame
+        $deltaDup = [math]::Max(0, $dup - $script:lastDup)
+        $encodeFps = $deltaFrame / $elapsed
+        $captureEstimate = [math]::Max(0, ($deltaFrame - $deltaDup) / $elapsed)
+        $fpsMetric.Text = "$([math]::Round($encodeFps, 1)) FPS"
+        $captureFpsMetric.Text = "$([math]::Round($captureEstimate, 1)) FPS"
+        $encodeFpsMetric.Text = "$([math]::Round($encodeFps, 1)) FPS"
+        $duplicateMetric.Text = [string]$dup
+        $dropMetric.Text = [string]$drop
+        $speedMetric.Text = if ($values.speed) { [string]$values.speed } else { '—' }
+        $gpuPercent = if ($script:lastGpu) { [double]$script:lastGpu.Gpu } else { '' }
+        $nvencPercent = if ($script:lastGpu) { [double]$script:lastGpu.Encoder } else { '' }
+        Write-DiagnosticSample ([ordered]@{
+          timestamp = $now.ToString('o')
+          capture_fps_estimate = [math]::Round($captureEstimate, 3)
+          encode_fps = [math]::Round($encodeFps, 3)
+          send_fps = [math]::Round($encodeFps, 3)
+          frames = $frame
+          duplicated = $dup
+          dropped = $drop
+          bitrate = if ($values.bitrate) { [string]$values.bitrate } else { '' }
+          speed = if ($values.speed) { [string]$values.speed } else { '' }
+          gpu_percent = $gpuPercent
+          nvenc_percent = $nvencPercent
+          nack = ''
+          rtx = ''
+          out_time = if ($values.out_time) { [string]$values.out_time } else { '' }
+        })
+      }
+    }
+    $script:lastFrame = $frame
+    $script:lastDup = $dup
+    $script:lastDrop = $drop
+    $script:lastSampleAt = $now
     if ($values.bitrate -and $values.bitrate -ne 'N/A') { $bitrateMetric.Text = $values.bitrate }
     $speedText = if ($values.speed) { " · velocidade $($values.speed)" } else { '' }
     $profile = Get-SelectedProfile
-    Set-StudioStatus "NO AR · $($profile.Short)" "RTX NVENC enviando ao LiveKit$speedText" '#D9452F'
+    $diagnosticText = if ($script:diagnosticJsonl) { ' · diagnóstico ativo' } else { '' }
+    Set-StudioStatus "NO AR · $($profile.Short)" "NVENC enviando ao LiveKit$speedText$diagnosticText" '#D9452F'
   } catch {}
 })
 $timer.Start()
+Update-BitrateOptions
 Update-ProfileUi
 
 $window.Add_Closing({ Stop-Studio; $timer.Stop() })
